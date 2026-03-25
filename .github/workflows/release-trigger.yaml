@@ -1,0 +1,98 @@
+name: AI Release Pipeline Trigger
+
+on:
+  release:
+    types: [published]
+
+  #NOTE: This can be used as different triggering events -> Currently configured to 
+  #send all of the data of commits between releases
+  #pull_request:
+    #types: [opened, synchronize, closed]
+    #branches:
+      #- main
+  #push:
+    #branches:
+      #- main
+  workflow_dispatch: #Makes a button appear on gh so to manually trigger this action
+
+jobs:
+  notify-ai-system:
+    name: Hitachi-Advisor
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1 Checkout code
+      - name: Code checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Read all of the past commits
+
+      # 2. Extract all of the commits from the latest release 
+      - name: Extract all commits from latest release
+        id: get_commits
+        run: |
+          #Search previous' release tag -> If not found return empty
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "First release, selecting all commits to date..."
+            COMMITS=$(git log --pretty=format:"%h - %an: %s" --no-merges)
+          else
+            echo "Found previous release [$PREV_TAG]. Selecting the new commits..."
+            # Select the commits between the latest and the current release
+            COMMITS=$(git log $PREV_TAG..HEAD --pretty=format:"%h - %an: %s" --no-merges)
+          fi
+          
+          # Save data locally in env file
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "COMMITS<<$EOF" >> $GITHUB_ENV
+          echo "$COMMITS" >> $GITHUB_ENV
+          echo "$EOF" >> $GITHUB_ENV
+
+      # 3. Read eventual security reports coming from past pipeline stages
+      - name: Read past stages (eventual) security reports 
+        id: read_reports
+        run: |
+          # Checks for post stage security report (e.g. Dependabot/Trivy)
+          if [ -f "security-report.json" ]; then
+            REPORT_CONTENT=$(cat security-report.json)
+          else
+            REPORT_CONTENT="No security report produced for this release..."
+          fi
+          
+          # Save data locally in env file
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "SECURITY_REPORT<<$EOF" >> $GITHUB_ENV
+          echo "$REPORT_CONTENT" >> $GITHUB_ENV
+          echo "$EOF" >> $GITHUB_ENV
+
+      # 4. Creation of payload
+      - name: Send data to backend
+        env:
+          #gh secrets used to hide endpoint and pipeline tkn (used to verify validity of request)
+          WEBHOOK_URL: ${{ secrets.AI_WEBHOOK_URL }}
+          WEBHOOK_TOKEN: ${{ secrets.AI_WEBHOOK_SECRET }}
+        run: |
+          # Create a temporary json file
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg tag "${{ github.event.release.tag_name }}" \
+            --arg author "${{ github.actor }}" \
+            --arg body "${{ github.event.release.body }}" \
+            --arg commits "$COMMITS" \
+            --arg security "$SECURITY_REPORT" \
+            '{
+              repository: $repo,
+              release_tag: $tag,
+              author: $author,
+              release_notes_draft: $body,
+              recent_commits: $commits,
+              security_scan_results: $security
+            }' > payload.json
+
+          echo "Sending payload to backend..."
+          # POST request to send the generated file, with secret token in the header
+          curl -X POST "$WEBHOOK_URL" \
+               -H "Content-Type: application/json" \
+               -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+               -d @payload.json
