@@ -95,4 +95,5 @@ jobs:
           curl -X POST "$WEBHOOK_URL" \
                -H "Content-Type: application/json" \
                -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+               -H "Bypass-Tunnel-Reminder: true" \
                -d @payload.json
