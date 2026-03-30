@@ -1,4 +1,4 @@
-# HitachiChallenge_TriggerTest
+# TriggerTest
 ## What this does
 The purpose of this repository is to test the release-trigger element of the github workflow.
 
