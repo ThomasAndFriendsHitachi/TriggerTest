@@ -25,6 +25,9 @@ jobs:
           # Branch data
           BRANCH_NAME=${GITHUB_REF#refs/heads/}
 
+          # Commit sha
+          COMMIT_SHA=${GITHUB_SHA}
+
           # Tag Data (if the current commit is related to a tag)
           TAG_NAME=$(git tag --points-at HEAD || echo "")
           
@@ -123,6 +126,7 @@ jobs:
           jq -n \
             --arg project "${{ github.repository }}" \
             --arg branch "$BRANCH_NAME" \
+            --arg sha "$COMMIT_SHA" \
             --arg phase "$DEV_PHASE" \
             --arg tag "$TAG_NAME" \
             --arg author_name "$AUTHOR_NAME" \
@@ -134,6 +138,7 @@ jobs:
             '{
               project_name: $project,
               branch: $branch,
+              commit_sha: $sha,
               development_phase: $phase,
               phase_tag: $tag,
               author: {
